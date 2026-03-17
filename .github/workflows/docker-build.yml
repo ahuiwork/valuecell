@@ -26,12 +26,10 @@ jobs:
       - name: 构建并推送
         uses: docker/build-push-action@v5
         with:
-          # ★★★ 重点：将 context 设为 python 文件夹 ★★★
-          context: ./python
-          # ★★★ 重点：明确指明 DockerFile 的路径 ★★★
-          file: docker/DockerFile 
+          # ★★★ 核心修改：改为根目录，这样 Docker 才能同时拿到 frontend 和 python 的代码 ★★★
+          context: .
+          file: docker/Dockerfile 
           push: true
-          tags: ghcr.io/${{ github.repository }}:latest
-          # 开启缓存，加速后续打包
+          tags: ghcr.io/${{ github.repository_owner }}/valuecell:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
