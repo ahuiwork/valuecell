@@ -27,4 +27,4 @@ EXPOSE 8000
 
 # ★★★ 核心修正：使用标准的 uvicorn 命令启动，解决云端容器无终端导致闪退的问题 ★★★
 # 注意 CMD 和[ 之间有空格
-CMD["uv", "run", "uvicorn", "valuecell.server.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "valuecell.server.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
