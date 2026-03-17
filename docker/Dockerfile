@@ -4,62 +4,59 @@
 FROM node:20-slim AS frontend-builder
 WORKDIR /app/frontend
 
-# 开启 pnpm 支持（很多现代化项目使用 pnpm）
+# 开启 pnpm 支持
 RUN corepack enable
 
 # 复制前端代码
 COPY frontend/ ./
 
-# 告诉前端：打包时把后端接口指向当前域名的根路径，不要去连 localhost
+# 注入环境变量，告诉前端把请求发给根目录的交通警察 (Nginx)
 ENV VITE_API_URL=/
 ENV VITE_API_BASE_URL=/
 ENV NEXT_PUBLIC_API_URL=/
 
-# 安装依赖并打包静态网页 (产物通常在 dist 目录)
-RUN npm install && npm run build
-
+# 自动判断并安装依赖进行打包 (产物将生成在 dist 目录)
+RUN if[ -f "pnpm-lock.yaml" ]; then pnpm install && pnpm run build; else npm install && npm run build; fi
 
 # ==========================================
 # 阶段 2: 构建后端与最终运行环境 (Python 环境)
 # ==========================================
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
-# 安装 Nginx (做端口转发) 和 Supervisor (让容器能同时跑多个程序)
+# 安装 Nginx (交通警察) 和 Supervisor (进程大管家)
 RUN apt-get update && apt-get install -y nginx supervisor && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # ---- 1. 安装 Python 后端 ----
 WORKDIR /app/python
-# 复制后端依赖描述文件
+# 利用缓存复制依赖文件
 COPY python/pyproject.toml python/uv.lock ./
 RUN uv sync --locked --no-install-project
-# 复制所有后端代码
+# 复制剩余所有后端代码
 COPY python/ ./
 RUN uv sync --locked
 
 # ---- 2. 注入前端产物 ----
-# 把第一阶段编译好的前端静态文件复制到 Nginx 可以读取的地方
+# 从阶段 1 把打包好的漂亮网页复制过来
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
-# ---- 3. 配置 Nginx 交通警察 ----
+# ---- 3. 配置 Nginx 路由规则 ----
 RUN echo 'server { \
     listen 80; \
     \
-    # 规则1：普通访问，直接返回前端网页 \
+    # 规则1：直接访问域名时，返回前端网页 \
     location / { \
         root /app/frontend/dist; \
         index index.html; \
         try_files $uri $uri/ /index.html; \
     } \
     \
-    # 规则2：遇到带 /api/ 的请求，全部转发给内网的 8000 后端 \
+    # 规则2：前端访问 /api/ 时，悄悄转发给内网的 Python 后端 \
     location /api/ { \
         proxy_pass http://127.0.0.1:8000/api/; \
         proxy_set_header Host $host; \
         proxy_set_header X-Real-IP $remote_addr; \
-        \
-        # 【极其重要】：关闭缓存，保证 AI 的打字机流式输出不会卡顿！ \
         proxy_buffering off; \
         proxy_cache off; \
         proxy_set_header Connection ""; \
@@ -68,8 +65,8 @@ RUN echo 'server { \
     } \
 }' > /etc/nginx/sites-available/default
 
-# ---- 4. 配置 Supervisor 进程大管家 ----
-# 让 Docker 启动时，同时拉起 Nginx 和 Python
+# ---- 4. 配置 Supervisor 大管家 ----
+# 让容器启动时同时拉起前端网关和后端服务
 RUN echo '[supervisord]\n\
 nodaemon=true\n\
 \n\
@@ -89,8 +86,8 @@ stderr_logfile=/dev/stderr\n\
 stderr_logfile_maxbytes=0\n\
 ' > /etc/supervisor/conf.d/supervisord.conf
 
-# 最终只对外开放 80 端口
+# 最终整个容器只对外开放 80 端口
 EXPOSE 80
 
-# 启动大管家
+# 启动大管家（注意：CMD 和 [ 之间有空格，不会再错了！）
 CMD["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
