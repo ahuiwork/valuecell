@@ -5,20 +5,16 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 WORKDIR /app
 
-# Pre-cache the application dependencies.
-RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-install-project
-
-# Copy the application into the container.
+# 注意：这里我们假设你的 docker-build.yml 里的 context 是 ./python
+# 如果是这样，/app 目录下就会有 valuecell 文件夹
 COPY . /app
 
-# Install the application dependencies.
+# 安装依赖
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked
 
 EXPOSE 8000
 
-# Run the application.
-CMD ["uv", "run", "python", "main.py", "--host", "0.0.0.0", "--port", "8000"]
+# ★★★ 核心修改点：修正 python 模块的启动路径 ★★★
+# 使用 -m 方式启动模块是最稳妥的，或者直接指明路径
+CMD ["uv", "run", "python", "-m", "valuecell.server.main", "--host", "0.0.0.0", "--port", "8000"]
