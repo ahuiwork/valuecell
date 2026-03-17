@@ -1,22 +1,19 @@
 # ==========================================
-# 阶段 1: 编译前端页面 (Node.js 环境)
+# 阶段 1: 编译前端页面 (使用 Bun 环境)
 # ==========================================
-FROM node:20-slim AS frontend-builder
+FROM oven/bun:1.3 AS frontend-builder
 WORKDIR /app/frontend
-
-# 开启 pnpm 支持 (如果项目使用 pnpm)
-RUN corepack enable
 
 # 复制前端代码
 COPY frontend/ ./
 
-# 注入环境变量，将 API 指向根路径
+# 注入环境变量
 ENV VITE_API_URL=/
 ENV VITE_API_BASE_URL=/
 ENV NEXT_PUBLIC_API_URL=/
 
-# 使用最稳妥的打包命令
-RUN if [ -f "pnpm-lock.yaml" ]; then pnpm install && pnpm run build; else npm install && npm run build; fi
+# 使用 bun 安装并打包
+RUN bun install && bun run build
 
 # ==========================================
 # 阶段 2: 构建后端与最终运行环境 (Python 环境)
@@ -36,7 +33,8 @@ COPY python/ ./
 RUN uv sync --locked
 
 # ---- 2. 注入前端产物 ----
-COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
+# 根据你的 package.json，产物在 build/client
+COPY --from=frontend-builder /app/frontend/build/client /app/frontend/dist
 
 # ---- 3. 配置 Nginx ----
 RUN echo 'server { \
