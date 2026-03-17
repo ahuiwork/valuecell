@@ -1,20 +1,30 @@
+# 使用官方高性能 uv 镜像
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
-# Install uv.
+# 安装 uv 环境
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
+# 设置工作目录
 WORKDIR /app
 
-# 注意：这里我们假设你的 docker-build.yml 里的 context 是 ./python
-# 如果是这样，/app 目录下就会有 valuecell 文件夹
-COPY . /app
+# 1. 先复制依赖描述文件（利用缓存）
+# 因为 workflow 里 context 设为了 ./python，所以这里直接找当前目录
+COPY pyproject.toml uv.lock ./
 
-# 安装依赖
+# 2. 安装依赖（不安装项目本身）
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-install-project
+
+# 3. 复制剩余所有后端代码
+COPY . .
+
+# 4. 完整安装
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked
 
+# 开放 8000 端口
 EXPOSE 8000
 
-# ★★★ 核心修改点：修正 python 模块的启动路径 ★★★
-# 使用 -m 方式启动模块是最稳妥的，或者直接指明路径
+# ★★★ 核心修正：使用模块化方式启动，解决路径找不到 main.py 的问题 ★★★
+# 这样 Python 会自动在 valuecell/server 目录下寻找 main.py
 CMD ["uv", "run", "python", "-m", "valuecell.server.main", "--host", "0.0.0.0", "--port", "8000"]
