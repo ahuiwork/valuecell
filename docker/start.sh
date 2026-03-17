@@ -1,7 +1,12 @@
 #!/bin/bash
-# 启动 Nginx，并确保它在后台运行
-nginx -g "daemon on;"
+# 1. 以后台方式启动 Nginx (防止它占用前台进程)
+service nginx start
 
-# 启动后端，直接输出到前台
-# 这样所有 Python 日志直接作为容器的主日志，不会报错
-cd /app/python && uv run uvicorn valuecell.server.api.app:app --host 0.0.0.0 --port 8000
+# 2. 以后台方式启动 Python 后端 (放在后台运行)
+# 注意：你需要安装一个简单的进程守护，或者确保后端一直跑
+# 这里我们直接启动它，并在最后用 tail 保持容器运行
+cd /app/python && uv run uvicorn valuecell.server.api.app:app --host 0.0.0.0 --port 8000 &
+
+# 3. 保持容器主进程不退出 (K8s 容器必须有一个主进程在运行)
+# 使用 tail 监听一个文件，或者简单的一条死循环
+tail -f /dev/null
