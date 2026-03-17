@@ -26,12 +26,12 @@ jobs:
       - name: 构建并推送
         uses: docker/build-push-action@v5
         with:
-          # ★★★ 设为根目录，让 Docker 能同时拿到 frontend 和 python 文件夹 ★★★
           context: .
-          # ★★★ 严格指定 Dockerfile 的路径和大小写 ★★★
           file: docker/Dockerfile 
           push: true
-          # 强制转换为小写，防止因为用户名大写导致权限报错
-          tags: ghcr.io/${{ github.repository_owner }}/valuecell:latest
+          # ★★★ 重点：同时保留 latest 和 run_number 标签 ★★★
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/valuecell:latest
+            ghcr.io/${{ github.repository_owner }}/valuecell:${{ github.run_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
