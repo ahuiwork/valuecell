@@ -27,5 +27,5 @@ EXPOSE 8000
 
 # ★★★ 核心修正：使用模块化方式启动，解决路径找不到 main.py 的问题 ★★★
 # 这样 Python 会自动在 valuecell/server 目录下寻找 main.py
-# 将原来的 CMD 替换为这一行
+# 注意 CMD 和[ 之间的那个空格！
 CMD["uv", "run", "uvicorn", "valuecell.server.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
