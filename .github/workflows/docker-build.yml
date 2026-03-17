@@ -1,4 +1,4 @@
-name: 打包 ValueCell 镜像
+name: 打包 ValueCell 一体化镜像
 
 on:
   workflow_dispatch: # 手动触发
@@ -26,10 +26,12 @@ jobs:
       - name: 构建并推送
         uses: docker/build-push-action@v5
         with:
-          # ★★★ 核心修改：改为根目录，这样 Docker 才能同时拿到 frontend 和 python 的代码 ★★★
+          # ★★★ 设为根目录，让 Docker 能同时拿到 frontend 和 python 文件夹 ★★★
           context: .
+          # ★★★ 严格指定 Dockerfile 的路径和大小写 ★★★
           file: docker/Dockerfile 
           push: true
+          # 强制转换为小写，防止因为用户名大写导致权限报错
           tags: ghcr.io/${{ github.repository_owner }}/valuecell:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
