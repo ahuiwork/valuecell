@@ -1,30 +1,96 @@
-# 使用官方高性能 uv 镜像
+# ==========================================
+# 阶段 1: 编译前端页面 (Node.js 环境)
+# ==========================================
+FROM node:20-slim AS frontend-builder
+WORKDIR /app/frontend
+
+# 开启 pnpm 支持（很多现代化项目使用 pnpm）
+RUN corepack enable
+
+# 复制前端代码
+COPY frontend/ ./
+
+# 告诉前端：打包时把后端接口指向当前域名的根路径，不要去连 localhost
+ENV VITE_API_URL=/
+ENV VITE_API_BASE_URL=/
+ENV NEXT_PUBLIC_API_URL=/
+
+# 安装依赖并打包静态网页 (产物通常在 dist 目录)
+RUN npm install && npm run build
+
+
+# ==========================================
+# 阶段 2: 构建后端与最终运行环境 (Python 环境)
+# ==========================================
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
-# 安装 uv 环境
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+# 安装 Nginx (做端口转发) 和 Supervisor (让容器能同时跑多个程序)
+RUN apt-get update && apt-get install -y nginx supervisor && rm -rf /var/lib/apt/lists/*
 
-# 设置工作目录
 WORKDIR /app
 
-# 1. 先复制依赖描述文件（利用缓存）
-# 因为 workflow 里 context 设为了 ./python，所以这里直接找当前目录
-COPY pyproject.toml uv.lock ./
+# ---- 1. 安装 Python 后端 ----
+WORKDIR /app/python
+# 复制后端依赖描述文件
+COPY python/pyproject.toml python/uv.lock ./
+RUN uv sync --locked --no-install-project
+# 复制所有后端代码
+COPY python/ ./
+RUN uv sync --locked
 
-# 2. 安装依赖（不安装项目本身）
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-install-project
+# ---- 2. 注入前端产物 ----
+# 把第一阶段编译好的前端静态文件复制到 Nginx 可以读取的地方
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
-# 3. 复制剩余所有后端代码
-COPY . .
+# ---- 3. 配置 Nginx 交通警察 ----
+RUN echo 'server { \
+    listen 80; \
+    \
+    # 规则1：普通访问，直接返回前端网页 \
+    location / { \
+        root /app/frontend/dist; \
+        index index.html; \
+        try_files $uri $uri/ /index.html; \
+    } \
+    \
+    # 规则2：遇到带 /api/ 的请求，全部转发给内网的 8000 后端 \
+    location /api/ { \
+        proxy_pass http://127.0.0.1:8000/api/; \
+        proxy_set_header Host $host; \
+        proxy_set_header X-Real-IP $remote_addr; \
+        \
+        # 【极其重要】：关闭缓存，保证 AI 的打字机流式输出不会卡顿！ \
+        proxy_buffering off; \
+        proxy_cache off; \
+        proxy_set_header Connection ""; \
+        proxy_http_version 1.1; \
+        chunked_transfer_encoding on; \
+    } \
+}' > /etc/nginx/sites-available/default
 
-# 4. 完整安装
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked
+# ---- 4. 配置 Supervisor 进程大管家 ----
+# 让 Docker 启动时，同时拉起 Nginx 和 Python
+RUN echo '[supervisord]\n\
+nodaemon=true\n\
+\n\
+[program:nginx]\n\
+command=nginx -g "daemon off;"\n\
+stdout_logfile=/dev/stdout\n\
+stdout_logfile_maxbytes=0\n\
+stderr_logfile=/dev/stderr\n\
+stderr_logfile_maxbytes=0\n\
+\n\
+[program:backend]\n\
+command=uv run uvicorn valuecell.server.api.app:app --host 127.0.0.1 --port 8000\n\
+directory=/app/python\n\
+stdout_logfile=/dev/stdout\n\
+stdout_logfile_maxbytes=0\n\
+stderr_logfile=/dev/stderr\n\
+stderr_logfile_maxbytes=0\n\
+' > /etc/supervisor/conf.d/supervisord.conf
 
-# 开放 8000 端口
-EXPOSE 8000
+# 最终只对外开放 80 端口
+EXPOSE 80
 
-# ★★★ 核心修正：使用标准的 uvicorn 命令启动，解决云端容器无终端导致闪退的问题 ★★★
-# 注意 CMD 和[ 之间有空格
-CMD ["uv", "run", "uvicorn", "valuecell.server.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# 启动大管家
+CMD["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
