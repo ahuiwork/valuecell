@@ -1,11 +1,10 @@
 name: 打包 ValueCell 镜像
 
 on:
-  workflow_dispatch: # 手动点击按钮触发
+  workflow_dispatch: # 手动触发
 
 jobs:
-  push_to_registry:
-    name: 推送镜像到 GHCR
+  build-and-push:
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -14,21 +13,25 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 登录到 GitHub 镜像仓库
+      - name: 登录 GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: 构建并推送
         uses: docker/build-push-action@v5
         with:
-          # ★★★ 关键修正 1：把上下文切换到 python 文件夹 ★★★
+          # ★★★ 重点：将 context 设为 python 文件夹 ★★★
           context: ./python
-          # ★★★ 关键修正 2：明确 DockerFile 的位置 ★★★
-          # 注意：这里的路径是相对于仓库根目录的
+          # ★★★ 重点：明确指明 DockerFile 的路径 ★★★
           file: docker/DockerFile 
           push: true
-          # 自动命名为：ghcr.io/你的用户名/valuecell:latest
           tags: ghcr.io/${{ github.repository }}:latest
+          # 开启缓存，加速后续打包
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
