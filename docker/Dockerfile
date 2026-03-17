@@ -90,4 +90,4 @@ stderr_logfile_maxbytes=0\n\
 EXPOSE 80
 
 # 启动大管家（注意：CMD 和 [ 之间有空格，不会再错了！）
-CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+CMD["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
