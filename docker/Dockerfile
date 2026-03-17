@@ -4,23 +4,20 @@
 FROM oven/bun:1.3 AS frontend-builder
 WORKDIR /app/frontend
 
-# 复制前端代码
 COPY frontend/ ./
 
-# 注入环境变量
+# 强制将 API 路径指向根路径的转发
 ENV VITE_API_URL=/
 ENV VITE_API_BASE_URL=/
 ENV NEXT_PUBLIC_API_URL=/
 
-# 使用 bun 安装并打包
 RUN bun install && bun run build
 
 # ==========================================
-# 阶段 2: 构建后端与最终运行环境 (Python 环境)
+# 阶段 2: 构建后端与最终运行环境
 # ==========================================
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
-# 安装 Nginx 和 Supervisor
 RUN apt-get update && apt-get install -y nginx supervisor && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -33,28 +30,29 @@ COPY python/ ./
 RUN uv sync --locked
 
 # ---- 2. 注入前端产物 ----
-# 根据你的 package.json，产物在 build/client
 COPY --from=frontend-builder /app/frontend/build/client /app/frontend/dist
 
-# ---- 3. 配置 Nginx ----
+# ---- 3. 配置 Nginx (修正版：全路由转发) ----
 RUN echo 'server { \
     listen 80; \
     \
-    location / { \
+    # 优先匹配静态资源 \
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ { \
         root /app/frontend/dist; \
-        index index.html; \
-        try_files $uri $uri/ /index.html; \
+        expires 1y; \
+        add_header Cache-Control "public"; \
     } \
     \
-    location /api/ { \
-        proxy_pass http://127.0.0.1:8000/api/; \
+    # 核心修正：所有非静态请求(包括路由和API)全部转发给 FastAPI \
+    location / { \
+        proxy_pass http://127.0.0.1:8000; \
         proxy_set_header Host $host; \
         proxy_set_header X-Real-IP $remote_addr; \
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; \
+        proxy_set_header X-Forwarded-Proto $scheme; \
         proxy_buffering off; \
         proxy_cache off; \
-        proxy_set_header Connection ""; \
         proxy_http_version 1.1; \
-        chunked_transfer_encoding on; \
     } \
 }' > /etc/nginx/sites-available/default
 
@@ -65,21 +63,15 @@ nodaemon=true\n\
 [program:nginx]\n\
 command=nginx -g "daemon off;"\n\
 stdout_logfile=/dev/stdout\n\
-stdout_logfile_maxbytes=0\n\
 stderr_logfile=/dev/stderr\n\
-stderr_logfile_maxbytes=0\n\
 \n\
 [program:backend]\n\
 command=uv run uvicorn valuecell.server.api.app:app --host 127.0.0.1 --port 8000\n\
 directory=/app/python\n\
 stdout_logfile=/dev/stdout\n\
-stdout_logfile_maxbytes=0\n\
 stderr_logfile=/dev/stderr\n\
-stderr_logfile_maxbytes=0\n\
 ' > /etc/supervisor/conf.d/supervisord.conf
 
-# 最终对外开放 80 端口
 EXPOSE 80
 
-# ★★★ 必须有空格 ★★★
 CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
