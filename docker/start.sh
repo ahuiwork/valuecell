@@ -1,13 +1,14 @@
 #!/bin/bash
-# 给予数据权限
+# 给予权限
 chmod -R 777 /data
 
-# 启动 Nginx (放在后台运行)
+# ★★★ 手术刀操作：把前端 dist 里所有文件里的 healthz 替换成 / ★★★
+# 使用 sed 命令批量替换所有 js 文件中的硬编码域名
+find /app/frontend/dist -name "*.js" -exec sed -i 's|https://healthz|/|g' {} +
+find /app/frontend/dist -name "*.js" -exec sed -i 's|http://healthz|/|g' {} +
+
+# 启动 Nginx
 nginx
 
-# 启动 Python 后端 (放在后台运行，并将所有输出写入日志文件)
-# nohup 可以防止终端关闭导致后端进程退出
-cd /app/python && nohup uv run uvicorn valuecell.server.api.app:app --host 0.0.0.0 --port 8000 > /app/backend.log 2>&1 &
-
-# 保持容器主进程不退出 (这是关键！)
-tail -f /dev/null
+# 启动 Python 后端
+cd /app/python && uv run uvicorn valuecell.server.api.app:app --host 0.0.0.0 --port 8000
